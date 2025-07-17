@@ -6,8 +6,6 @@ import os
 from datetime import datetime
 import requests
 import time
-import yfinance as yf
-import pandas as pd
 
 app = Flask(__name__)
 CORS(app)
@@ -80,17 +78,13 @@ def init_db():
 def home():
     return jsonify({
         "message": "🚀 AI Trading Platform API",
-        "version": "3.0",
+        "version": "2.1",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
         "features": [
             "Live positions tracking",
             "Real-time trade management",
-            "Real market data (Yahoo Finance)",
-            "Live stock prices",
-            "Market overview (NIFTY, BANK NIFTY, SENSEX)",
-            "Stock search with live data",
-            "Top gainers tracking",
+            "Market data integration",
             "Professional API endpoints"
         ]
     })
@@ -101,7 +95,7 @@ def health():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "database": "connected",
-        "version": "3.0"
+        "version": "2.1"
     })
 
 @app.route('/api/positions')
@@ -168,287 +162,6 @@ def get_market_data(symbol):
             "timestamp": datetime.now().isoformat()
         })
         
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# NEW: Real Market Data Routes
-@app.route('/api/real-market-data/<symbol>')
-def get_real_market_data(symbol):
-    try:
-        # Get data from Yahoo Finance (free, no API key needed)
-        ticker = yf.Ticker(f"{symbol}.NS")  # NSE stocks
-        
-        # Get current price
-        info = ticker.info
-        current_price = info.get('currentPrice', 0)
-        previous_close = info.get('previousClose', 0)
-        
-        # If no current price, try to get from history
-        if current_price == 0:
-            hist = ticker.history(period="1d")
-            if not hist.empty:
-                current_price = hist['Close'].iloc[-1]
-                previous_close = hist['Open'].iloc[-1]
-        
-        # Calculate change
-        change = current_price - previous_close
-        change_percent = (change / previous_close) * 100 if previous_close else 0
-        
-        # Get additional data
-        volume = info.get('volume', 0)
-        market_cap = info.get('marketCap', 0)
-        
-        return jsonify({
-            "symbol": symbol.upper(),
-            "current_price": round(current_price, 2),
-            "previous_close": round(previous_close, 2),
-            "change": round(change, 2),
-            "change_percent": round(change_percent, 2),
-            "volume": volume,
-            "market_cap": market_cap,
-            "timestamp": datetime.now().isoformat(),
-            "source": "Yahoo Finance"
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/market-overview')
-def get_market_overview():
-    try:
-        # Get data for major indices
-        market_data = {}
-        
-        # NIFTY 50
-        try:
-            nifty = yf.Ticker("^NSEI")
-            nifty_info = nifty.info
-            nifty_price = nifty_info.get('currentPrice', 0)
-            nifty_previous = nifty_info.get('previousClose', 0)
-            
-            # If no current price, try to get from history
-            if nifty_price == 0:
-                hist = nifty.history(period="1d")
-                if not hist.empty:
-                    nifty_price = hist['Close'].iloc[-1]
-                    nifty_previous = hist['Open'].iloc[-1]
-            
-            nifty_change = nifty_price - nifty_previous
-            nifty_change_percent = (nifty_change / nifty_previous) * 100 if nifty_previous else 0
-            
-            market_data['NIFTY'] = {
-                "price": round(nifty_price, 2),
-                "change": round(nifty_change, 2),
-                "change_percent": round(nifty_change_percent, 2)
-            }
-        except:
-            market_data['NIFTY'] = {"price": 19500, "change": 125.50, "change_percent": 0.64}
-        
-        # BANK NIFTY
-        try:
-            banknifty = yf.Ticker("^NSEBANK")
-            bank_info = banknifty.info
-            bank_price = bank_info.get('currentPrice', 0)
-            bank_previous = bank_info.get('previousClose', 0)
-            
-            # If no current price, try to get from history
-            if bank_price == 0:
-                hist = banknifty.history(period="1d")
-                if not hist.empty:
-                    bank_price = hist['Close'].iloc[-1]
-                    bank_previous = hist['Open'].iloc[-1]
-            
-            bank_change = bank_price - bank_previous
-            bank_change_percent = (bank_change / bank_previous) * 100 if bank_previous else 0
-            
-            market_data['BANKNIFTY'] = {
-                "price": round(bank_price, 2),
-                "change": round(bank_change, 2),
-                "change_percent": round(bank_change_percent, 2)
-            }
-        except:
-            market_data['BANKNIFTY'] = {"price": 45000, "change": 200.30, "change_percent": 0.45}
-        
-        # SENSEX
-        try:
-            sensex = yf.Ticker("^BSESN")
-            sensex_info = sensex.info
-            sensex_price = sensex_info.get('currentPrice', 0)
-            sensex_previous = sensex_info.get('previousClose', 0)
-            
-            # If no current price, try to get from history
-            if sensex_price == 0:
-                hist = sensex.history(period="1d")
-                if not hist.empty:
-                    sensex_price = hist['Close'].iloc[-1]
-                    sensex_previous = hist['Open'].iloc[-1]
-            
-            sensex_change = sensex_price - sensex_previous
-            sensex_change_percent = (sensex_change / sensex_previous) * 100 if sensex_previous else 0
-            
-            market_data['SENSEX'] = {
-                "price": round(sensex_price, 2),
-                "change": round(sensex_change, 2),
-                "change_percent": round(sensex_change_percent, 2)
-            }
-        except:
-            market_data['SENSEX'] = {"price": 65000, "change": 180.75, "change_percent": 0.28}
-        
-        return jsonify({
-            "market_data": market_data,
-            "timestamp": datetime.now().isoformat(),
-            "market_status": "Open" if 9 <= datetime.now().hour < 16 else "Closed"
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/top-gainers')
-def get_top_gainers():
-    try:
-        # Popular Indian stocks
-        stocks = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'KOTAKBANK', 'SBIN', 'BHARTIARTL', 'ITC', 'ASIANPAINT']
-        gainers = []
-        
-        for stock in stocks:
-            try:
-                ticker = yf.Ticker(f"{stock}.NS")
-                info = ticker.info
-                current_price = info.get('currentPrice', 0)
-                previous_close = info.get('previousClose', 0)
-                
-                # If no current price, try to get from history
-                if current_price == 0:
-                    hist = ticker.history(period="1d")
-                    if not hist.empty:
-                        current_price = hist['Close'].iloc[-1]
-                        previous_close = hist['Open'].iloc[-1]
-                
-                if current_price > 0 and previous_close > 0:
-                    change_percent = ((current_price - previous_close) / previous_close) * 100
-                    
-                    gainers.append({
-                        "symbol": stock,
-                        "price": round(current_price, 2),
-                        "change_percent": round(change_percent, 2)
-                    })
-            except:
-                # Skip if data not available
-                continue
-        
-        # Sort by change percent (descending)
-        gainers.sort(key=lambda x: x['change_percent'], reverse=True)
-        
-        return jsonify({
-            "top_gainers": gainers[:10],
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/stock-search/<query>')
-def search_stocks(query):
-    try:
-        # Simple stock search
-        indian_stocks = {
-            'RELIANCE': 'Reliance Industries Ltd',
-            'TCS': 'Tata Consultancy Services',
-            'HDFCBANK': 'HDFC Bank Ltd',
-            'INFY': 'Infosys Ltd',
-            'ICICIBANK': 'ICICI Bank Ltd',
-            'KOTAKBANK': 'Kotak Mahindra Bank',
-            'HINDUNILVR': 'Hindustan Unilever Ltd',
-            'SBIN': 'State Bank of India',
-            'BHARTIARTL': 'Bharti Airtel Ltd',
-            'ITC': 'ITC Ltd',
-            'ASIANPAINT': 'Asian Paints Ltd',
-            'MARUTI': 'Maruti Suzuki India Ltd',
-            'BAJFINANCE': 'Bajaj Finance Ltd',
-            'AXISBANK': 'Axis Bank Ltd',
-            'LT': 'Larsen & Toubro Ltd',
-            'WIPRO': 'Wipro Ltd',
-            'ULTRACEMCO': 'UltraTech Cement Ltd',
-            'TITAN': 'Titan Company Ltd',
-            'POWERGRID': 'Power Grid Corporation',
-            'NTPC': 'NTPC Ltd'
-        }
-        
-        results = []
-        query_upper = query.upper()
-        
-        for symbol, name in indian_stocks.items():
-            if query_upper in symbol or query_upper in name.upper():
-                try:
-                    ticker = yf.Ticker(f"{symbol}.NS")
-                    info = ticker.info
-                    current_price = info.get('currentPrice', 0)
-                    previous_close = info.get('previousClose', 0)
-                    
-                    # If no current price, try to get from history
-                    if current_price == 0:
-                        hist = ticker.history(period="1d")
-                        if not hist.empty:
-                            current_price = hist['Close'].iloc[-1]
-                            previous_close = hist['Open'].iloc[-1]
-                    
-                    if current_price > 0 and previous_close > 0:
-                        change_percent = ((current_price - previous_close) / previous_close) * 100
-                        
-                        results.append({
-                            "symbol": symbol,
-                            "name": name,
-                            "price": round(current_price, 2),
-                            "change_percent": round(change_percent, 2)
-                        })
-                    else:
-                        results.append({
-                            "symbol": symbol,
-                            "name": name,
-                            "price": 1000,
-                            "change_percent": 0.5
-                        })
-                except:
-                    results.append({
-                        "symbol": symbol,
-                        "name": name,
-                        "price": 1000,
-                        "change_percent": 0.5
-                    })
-        
-        return jsonify({
-            "results": results,
-            "query": query,
-            "count": len(results),
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/historical-data/<symbol>')
-def get_historical_data(symbol):
-    try:
-        # Get historical data from Yahoo Finance
-        ticker = yf.Ticker(f"{symbol}.NS")
-        
-        # Get last 30 days of data
-        hist = ticker.history(period="30d")
-        
-        # Convert to list of dictionaries
-        data = []
-        for date, row in hist.iterrows():
-            data.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "open": round(row['Open'], 2),
-                "high": round(row['High'], 2),
-                "low": round(row['Low'], 2),
-                "close": round(row['Close'], 2),
-                "volume": int(row['Volume'])
-            })
-        
-        return jsonify({
-            "symbol": symbol.upper(),
-            "data": data,
-            "count": len(data),
-            "timestamp": datetime.now().isoformat()
-        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -561,6 +274,4 @@ def get_stats():
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 10000))
-    print(f"🚀 Starting AI Trading Platform API v3.0 on port {port}")
-    print("✅ Features: Real market data, Live prices, Market overview, Stock search")
     app.run(host='0.0.0.0', port=port, debug=False)
