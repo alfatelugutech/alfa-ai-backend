@@ -1,11 +1,6 @@
-# Essential packages
 fastapi
 uvicorn
 requests
 python-dotenv
-
-# Pre-built pandas wheel for compatibility (avoid build error)
 pandas==1.5.3
-
-# Fix for build isolation errors
 wheel
