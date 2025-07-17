@@ -1,11 +1,9 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import sqlite3
-import json
 import os
-from datetime import datetime
-import requests
 import time
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -45,7 +43,7 @@ def init_db():
         )
     ''')
     
-    # Insert sample data
+    # Insert sample data if empty
     cursor.execute('SELECT COUNT(*) FROM positions')
     if cursor.fetchone()[0] == 0:
         sample_positions = [
@@ -80,13 +78,7 @@ def home():
         "message": "🚀 AI Trading Platform API",
         "version": "2.1",
         "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "features": [
-            "Live positions tracking",
-            "Real-time trade management",
-            "Market data integration",
-            "Professional API endpoints"
-        ]
+        "timestamp": datetime.now().isoformat()
     })
 
 @app.route('/api/health')
@@ -103,10 +95,8 @@ def get_positions():
     try:
         conn = sqlite3.connect('trading.db')
         cursor = conn.cursor()
-        
         cursor.execute('SELECT * FROM positions ORDER BY timestamp DESC')
         positions = cursor.fetchall()
-        
         conn.close()
         
         return jsonify({
@@ -122,10 +112,8 @@ def get_trades():
     try:
         conn = sqlite3.connect('trading.db')
         cursor = conn.cursor()
-        
         cursor.execute('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 100')
         trades = cursor.fetchall()
-        
         conn.close()
         
         return jsonify({
@@ -139,7 +127,7 @@ def get_trades():
 @app.route('/api/market-data/<symbol>')
 def get_market_data(symbol):
     try:
-        # Simulate market data (replace with real API later)
+        # Simulate market data
         base_prices = {
             'RELIANCE': 2478.30,
             'TCS': 3812.45,
@@ -149,7 +137,6 @@ def get_market_data(symbol):
         }
         
         base_price = base_prices.get(symbol.upper(), 1000.0)
-        # Add small random variation
         import random
         current_price = base_price + random.uniform(-50, 50)
         change = current_price - base_price
@@ -161,7 +148,6 @@ def get_market_data(symbol):
             "change_percent": round((change / base_price) * 100, 2),
             "timestamp": datetime.now().isoformat()
         })
-        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -195,39 +181,6 @@ def place_order():
             data.get('strategy', 'manual')
         ))
         
-        # Update positions (simplified logic)
-        cursor.execute('SELECT * FROM positions WHERE symbol = ?', (data['symbol'].upper(),))
-        existing_position = cursor.fetchone()
-        
-        if existing_position:
-            # Update existing position
-            if data['side'].upper() == 'BUY':
-                new_quantity = existing_position[2] + data['quantity']
-                new_avg_price = ((existing_position[2] * existing_position[3]) + (data['quantity'] * data['price'])) / new_quantity
-            else:  # SELL
-                new_quantity = existing_position[2] - data['quantity']
-                new_avg_price = existing_position[3]  # Keep same average price
-            
-            cursor.execute('''
-                UPDATE positions 
-                SET quantity = ?, average_price = ?, current_price = ?
-                WHERE symbol = ?
-            ''', (new_quantity, new_avg_price, data['price'], data['symbol'].upper()))
-        else:
-            # Create new position
-            if data['side'].upper() == 'BUY':
-                cursor.execute('''
-                    INSERT INTO positions (symbol, quantity, average_price, current_price, pnl, strategy)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    data['symbol'].upper(),
-                    data['quantity'],
-                    data['price'],
-                    data['price'],
-                    0.0,
-                    data.get('strategy', 'manual')
-                ))
-        
         conn.commit()
         conn.close()
         
@@ -237,41 +190,18 @@ def place_order():
             "trade_id": trade_id,
             "timestamp": datetime.now().isoformat()
         })
-        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/stats')
-def get_stats():
-    try:
-        conn = sqlite3.connect('trading.db')
-        cursor = conn.cursor()
-        
-        # Get total positions
-        cursor.execute('SELECT COUNT(*) FROM positions WHERE quantity > 0')
-        total_positions = cursor.fetchone()[0]
-        
-        # Get total trades
-        cursor.execute('SELECT COUNT(*) FROM trades')
-        total_trades = cursor.fetchone()[0]
-        
-        # Get total PnL
-        cursor.execute('SELECT SUM(pnl) FROM positions WHERE pnl IS NOT NULL')
-        total_pnl = cursor.fetchone()[0] or 0
-        
-        conn.close()
-        
-        return jsonify({
-            "total_positions": total_positions,
-            "total_trades": total_trades,
-            "total_pnl": round(total_pnl, 2),
-            "timestamp": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# This is crucial for Render deployment
 if __name__ == '__main__':
+    print("🚀 Starting AI Trading Platform API...")
     init_db()
-    port = int(os.environ.get('PORT', 10000))
+    print("✅ Database initialized")
+    
+    # Get port from environment variable (Render sets this)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🌐 Starting server on port {port}")
+    
+    # Run the app
     app.run(host='0.0.0.0', port=port, debug=False)
