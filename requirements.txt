@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+requests
+python-dotenv
+pandas==1.5.3
+wheel
