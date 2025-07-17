@@ -2,6 +2,8 @@ services:
   - type: web
     name: alfa-ai-backend
     env: python
+    build:
+      pythonVersion: 3.11.9
     buildCommand: |
       pip install --upgrade pip
       pip install wheel
