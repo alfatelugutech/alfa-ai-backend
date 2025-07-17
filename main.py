@@ -1,13 +1,10 @@
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from kiteconnect import KiteConnect
-import os, json
+import os
 
 app = FastAPI()
-
-# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,60 +13,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Zerodha API credentials
 API_KEY = "lrihyd0xb6gkomut"
 API_SECRET = "k9knkh0deaguzg9ubcspvtajygu9j1uh"
 kite = KiteConnect(api_key=API_KEY)
 
-# Store access token
-TOKEN_PATH = "access_token.json"
+access_token = None
 
 @app.get("/")
-def root():
-    return {"status": "Backend with KiteConnect ready."}
+def read_root():
+    return {"status": "Backend is running!"}
 
 @app.get("/api/zerodha/login")
 def zerodha_login():
-    url = kite.login_url()
-    return {"login_url": url}
+    login_url = kite.login_url()
+    return {"login_url": login_url}
 
 @app.get("/api/zerodha/access_token")
-def generate_access_token(request_token: str = Query(...)):
+def get_access_token(request_token: str):
+    global access_token
     try:
-        data = kite.generate_session(request_token, api_secret=API_SECRET)
-        kite.set_access_token(data["access_token"])
-        with open(TOKEN_PATH, "w") as f:
-            json.dump(data, f)
-        return {"status": "access_token_saved", "token": data["access_token"]}
+        session_data = kite.generate_session(request_token, api_secret=API_SECRET)
+        access_token = session_data["access_token"]
+        kite.set_access_token(access_token)
+        return {"message": "Access token acquired", "access_token": access_token}
     except Exception as e:
         return {"error": str(e)}
 
 @app.post("/api/order/place")
-async def place_order(req: Request):
+async def place_order(request: Request):
+    if not access_token:
+        return {"error": "Access token not set"}
+    data = await request.json()
     try:
-        body = await req.json()
-        with open(TOKEN_PATH, "r") as f:
-            saved = json.load(f)
-            kite.set_access_token(saved["access_token"])
-
         order_id = kite.place_order(
             variety=kite.VARIETY_REGULAR,
-            exchange="NSE",
-            tradingsymbol=body.get("symbol", "RELIANCE"),
-            transaction_type=kite.TRANSACTION_TYPE_BUY if body.get("side", "BUY") == "BUY" else kite.TRANSACTION_TYPE_SELL,
-            quantity=1,
+            exchange=kite.EXCHANGE_NSE,
+            tradingsymbol=data["symbol"],
+            transaction_type=data["side"],
+            quantity=int(data["qty"]),
             product=kite.PRODUCT_MIS,
-            order_type=kite.ORDER_TYPE_MARKET
+            order_type=kite.ORDER_TYPE_MARKET,
         )
-        return {"status": "order_placed", "order_id": order_id}
+        return {"message": "Order placed", "order_id": order_id}
     except Exception as e:
         return {"error": str(e)}
-
-@app.get("/api/token/refresh")
-def refresh_token():
-    try:
-        with open(TOKEN_PATH, "r") as f:
-            data = json.load(f)
-        return {"status": "token_valid", "token": data["access_token"]}
-    except:
-        return {"status": "no_token_found"}
