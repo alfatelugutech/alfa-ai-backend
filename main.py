@@ -1,11 +1,12 @@
-
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from kiteconnect import KiteConnect
 import os
 
 app = FastAPI()
 
+# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,48 +15,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-kite = KiteConnect(api_key=os.getenv("API_KEY"))
-access_token_store = {}
+kite = KiteConnect(api_key=os.getenv("KITE_API_KEY"))
+access_token = None
 
-@app.get("/api/zerodha/access_token")
-async def generate_access_token(request: Request):
+class TokenRequest(BaseModel):
+    request_token: str
+
+@app.get("/")
+def home():
+    return {"message": "ALFA AI Trading Backend Live"}
+
+@app.post("/api/zerodha/access_token")
+def generate_access_token(data: TokenRequest):
+    global access_token
     try:
-        request_token = request.query_params.get("request_token")
-        data = kite.generate_session(request_token, api_secret=os.getenv("API_SECRET"))
-        kite.set_access_token(data["access_token"])
-        access_token_store["access_token"] = data["access_token"]
+        session = kite.generate_session(data.request_token, api_secret=os.getenv("KITE_API_SECRET"))
+        access_token = session["access_token"]
+        kite.set_access_token(access_token)
         return {
             "message": "Zerodha access token generated successfully.",
-            "user_id": data["user_id"],
-            "access_token": data["access_token"],
-            "public_token": data["public_token"]
+            "user_id": session["user_id"],
+            "access_token": session["access_token"],
+            "public_token": session["public_token"]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
 
 @app.get("/api/zerodha/funds")
-async def get_funds():
+def get_funds():
     try:
-        kite.set_access_token(access_token_store.get("access_token"))
+        if not access_token:
+            return {"error": "Access token not set"}
         funds = kite.margins()
         return funds
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
 
 @app.get("/api/zerodha/positions")
-async def get_positions():
+def get_positions():
     try:
-        kite.set_access_token(access_token_store.get("access_token"))
+        if not access_token:
+            return {"error": "Access token not set"}
         positions = kite.positions()
         return positions
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
 
 @app.get("/api/zerodha/orders")
-async def get_orders():
+def get_orders():
     try:
-        kite.set_access_token(access_token_store.get("access_token"))
+        if not access_token:
+            return {"error": "Access token not set"}
         orders = kite.orders()
         return orders
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
