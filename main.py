@@ -1,10 +1,11 @@
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from kiteconnect import KiteConnect
 import os
 
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,47 +14,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-API_KEY = "lrihyd0xb6gkomut"
-API_SECRET = "k9knkh0deaguzg9ubcspvtajygu9j1uh"
-kite = KiteConnect(api_key=API_KEY)
-
-access_token = None
-
-@app.get("/")
-def read_root():
-    return {"status": "Backend is running!"}
-
-@app.get("/api/zerodha/login")
-def zerodha_login():
-    login_url = kite.login_url()
-    return {"login_url": login_url}
+kite = KiteConnect(api_key=os.getenv("API_KEY"))
+access_token_store = {}
 
 @app.get("/api/zerodha/access_token")
-def get_access_token(request_token: str):
-    global access_token
+async def generate_access_token(request: Request):
     try:
-        session_data = kite.generate_session(request_token, api_secret=API_SECRET)
-        access_token = session_data["access_token"]
-        kite.set_access_token(access_token)
-        return {"message": "Access token acquired", "access_token": access_token}
+        request_token = request.query_params.get("request_token")
+        data = kite.generate_session(request_token, api_secret=os.getenv("API_SECRET"))
+        kite.set_access_token(data["access_token"])
+        access_token_store["access_token"] = data["access_token"]
+        return {
+            "message": "Zerodha access token generated successfully.",
+            "user_id": data["user_id"],
+            "access_token": data["access_token"],
+            "public_token": data["public_token"]
+        }
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/order/place")
-async def place_order(request: Request):
-    if not access_token:
-        return {"error": "Access token not set"}
-    data = await request.json()
+@app.get("/api/zerodha/funds")
+async def get_funds():
     try:
-        order_id = kite.place_order(
-            variety=kite.VARIETY_REGULAR,
-            exchange=kite.EXCHANGE_NSE,
-            tradingsymbol=data["symbol"],
-            transaction_type=data["side"],
-            quantity=int(data["qty"]),
-            product=kite.PRODUCT_MIS,
-            order_type=kite.ORDER_TYPE_MARKET,
-        )
-        return {"message": "Order placed", "order_id": order_id}
+        kite.set_access_token(access_token_store.get("access_token"))
+        funds = kite.margins()
+        return funds
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/zerodha/positions")
+async def get_positions():
+    try:
+        kite.set_access_token(access_token_store.get("access_token"))
+        positions = kite.positions()
+        return positions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/zerodha/orders")
+async def get_orders():
+    try:
+        kite.set_access_token(access_token_store.get("access_token"))
+        orders = kite.orders()
+        return orders
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
