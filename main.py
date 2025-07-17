@@ -1,33 +1,23 @@
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from kiteconnect import KiteConnect
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+kite = KiteConnect(api_key="q66ifywyb7vuhyd3")
+
 @app.get("/")
-def root():
+def read_root():
     return {"status": "ALFA Backend Live"}
 
 @app.post("/api/zerodha/login")
-async def login():
-    return {"message": "Zerodha login POST route working"}
-
-@app.get("/api/zerodha/funds")
-async def funds():
-    return {"funds": "₹1,00,000"}
-
-@app.get("/api/zerodha/orders")
-async def orders():
-    return {"orders": []}
-
-@app.get("/api/zerodha/positions")
-async def positions():
-    return {"positions": []}
+def login_to_zerodha():
+    login_url = kite.login_url()
+    return {"login_url": login_url}
