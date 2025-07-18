@@ -7,8 +7,15 @@ from datetime import datetime, timedelta
 import requests
 import time
 import random
-import yfinance as yf
-from threading import Thread
+
+# Try to import yfinance, fall back to mock data if not available
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+    print("✅ yfinance loaded successfully")
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    print("⚠️ yfinance not available, using mock data")
 
 app = Flask(__name__)
 CORS(app)
@@ -125,52 +132,53 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Real market data using yfinance
+# Real market data using yfinance (with fallback)
 def get_real_market_data(symbol):
-    try:
-        # Map Indian symbols
-        symbol_map = {
-            'RELIANCE': 'RELIANCE.NS',
-            'TCS': 'TCS.NS',
-            'HDFCBANK': 'HDFCBANK.NS',
-            'INFY': 'INFY.NS',
-            'ICICIBANK': 'ICICIBANK.NS',
-            'SBIN': 'SBIN.NS',
-            'WIPRO': 'WIPRO.NS',
-            'BHARTIARTL': 'BHARTIARTL.NS',
-            'LT': 'LT.NS',
-            'MARUTI': 'MARUTI.NS',
-            'NIFTY': '^NSEI',
-            'BANKNIFTY': '^NSEBANK',
-            'SENSEX': '^BSESN'
-        }
-        
-        yahoo_symbol = symbol_map.get(symbol.upper(), f"{symbol.upper()}.NS")
-        
-        stock = yf.Ticker(yahoo_symbol)
-        hist = stock.history(period='2d')
-        
-        if len(hist) >= 2:
-            current_price = hist['Close'].iloc[-1]
-            previous_close = hist['Close'].iloc[-2]
-            change = current_price - previous_close
-            change_percent = (change / previous_close) * 100
-            
-            return {
-                'symbol': symbol.upper(),
-                'current_price': round(float(current_price), 2),
-                'previous_close': round(float(previous_close), 2),
-                'change': round(float(change), 2),
-                'change_percent': round(float(change_percent), 2),
-                'timestamp': datetime.now().isoformat(),
-                'source': 'Yahoo Finance',
-                'volume': int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns else 0,
-                'high': round(float(hist['High'].iloc[-1]), 2),
-                'low': round(float(hist['Low'].iloc[-1]), 2),
-                'open': round(float(hist['Open'].iloc[-1]), 2)
+    if YFINANCE_AVAILABLE:
+        try:
+            # Map Indian symbols
+            symbol_map = {
+                'RELIANCE': 'RELIANCE.NS',
+                'TCS': 'TCS.NS',
+                'HDFCBANK': 'HDFCBANK.NS',
+                'INFY': 'INFY.NS',
+                'ICICIBANK': 'ICICIBANK.NS',
+                'SBIN': 'SBIN.NS',
+                'WIPRO': 'WIPRO.NS',
+                'BHARTIARTL': 'BHARTIARTL.NS',
+                'LT': 'LT.NS',
+                'MARUTI': 'MARUTI.NS',
+                'NIFTY': '^NSEI',
+                'BANKNIFTY': '^NSEBANK',
+                'SENSEX': '^BSESN'
             }
-    except Exception as e:
-        print(f"Error fetching real data for {symbol}: {e}")
+            
+            yahoo_symbol = symbol_map.get(symbol.upper(), f"{symbol.upper()}.NS")
+            
+            stock = yf.Ticker(yahoo_symbol)
+            hist = stock.history(period='2d')
+            
+            if len(hist) >= 2:
+                current_price = hist['Close'].iloc[-1]
+                previous_close = hist['Close'].iloc[-2]
+                change = current_price - previous_close
+                change_percent = (change / previous_close) * 100
+                
+                return {
+                    'symbol': symbol.upper(),
+                    'current_price': round(float(current_price), 2),
+                    'previous_close': round(float(previous_close), 2),
+                    'change': round(float(change), 2),
+                    'change_percent': round(float(change_percent), 2),
+                    'timestamp': datetime.now().isoformat(),
+                    'source': 'Yahoo Finance',
+                    'volume': int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns else 0,
+                    'high': round(float(hist['High'].iloc[-1]), 2),
+                    'low': round(float(hist['Low'].iloc[-1]), 2),
+                    'open': round(float(hist['Open'].iloc[-1]), 2)
+                }
+        except Exception as e:
+            print(f"Error fetching real data for {symbol}: {e}")
     
     # Fallback to mock data
     return get_mock_price(symbol)
@@ -206,7 +214,7 @@ def get_mock_price(symbol, base_price=None):
         'change': round(change, 2),
         'change_percent': round(change_percent, 2),
         'timestamp': datetime.now().isoformat(),
-        'source': 'Mock Data',
+        'source': 'Mock Data' if not YFINANCE_AVAILABLE else 'Yahoo Finance (Fallback)',
         'volume': random.randint(100000, 10000000),
         'high': round(current_price * 1.02, 2),
         'low': round(current_price * 0.98, 2),
@@ -221,8 +229,9 @@ def home():
         "version": "4.0",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
+        "yfinance_status": "Available" if YFINANCE_AVAILABLE else "Mock Data Mode",
         "features": [
-            "Real-time market data (Yahoo Finance)",
+            "Real-time market data" + (" (Yahoo Finance)" if YFINANCE_AVAILABLE else " (Mock)"),
             "Paper trading simulation",
             "Broker API integration (Zerodha, mStock)",
             "Professional desktop layout",
@@ -240,8 +249,9 @@ def health():
         "timestamp": datetime.now().isoformat(),
         "database": "connected",
         "version": "4.0",
-        "market_data": "live",
-        "paper_trading": "active"
+        "market_data": "live" if YFINANCE_AVAILABLE else "mock",
+        "paper_trading": "active",
+        "yfinance": YFINANCE_AVAILABLE
     })
 
 # Paper Trading Account Management
@@ -449,6 +459,7 @@ def get_market_overview():
         return jsonify({
             "market_data": market_data,
             "market_status": market_status,
+            "data_source": "Yahoo Finance" if YFINANCE_AVAILABLE else "Mock Data",
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
