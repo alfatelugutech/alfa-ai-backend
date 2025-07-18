@@ -1240,3 +1240,36 @@ if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
+
+import yfinance as yf
+
+# === AI SETTINGS STORAGE ===
+ai_settings = {
+    "frequency": 30,
+    "max_trades": 10,
+    "stop_loss": 5,
+    "take_profit": 10,
+    "symbols": ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS"]
+}
+
+@app.get("/api/ai/settings")
+def get_ai_settings():
+    return ai_settings
+
+@app.post("/api/ai/settings")
+def update_ai_settings(settings: dict):
+    global ai_settings
+    ai_settings.update(settings)
+    return {"status": "success", "message": "AI settings updated", "data": ai_settings}
+
+# === Helper: Get Price with Fallback ===
+def get_price(symbol):
+    try:
+        data = yf.download(symbol, period="5d", interval="1d", progress=False)
+        if data.empty:
+            raise ValueError("Empty data")
+        return float(data['Close'][-1])
+    except Exception as e:
+        print(f"⚠️ Failed to fetch price for {symbol}: {e}")
+        return None
