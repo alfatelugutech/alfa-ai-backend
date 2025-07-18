@@ -1273,3 +1273,53 @@ def get_price(symbol):
     except Exception as e:
         print(f"⚠️ Failed to fetch price for {symbol}: {e}")
         return None
+
+
+# === ADDED: NSEIndia scraping + Auto Square-Off ===
+import requests, json, datetime, threading, time
+
+def get_nse_price(symbol):
+    url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol.upper()}"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.nseindia.com/"
+    }
+    session = requests.Session()
+    session.get("https://www.nseindia.com", headers=headers)
+    res = session.get(url, headers=headers)
+    data = res.json()
+    return float(data["priceInfo"]["lastPrice"])
+
+@app.route("/get-price", methods=["GET"])
+def get_price():
+    symbol = request.args.get("symbol")
+    try:
+        price = get_nse_price(symbol)
+        return jsonify({"symbol": symbol, "price": price})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# Optional Auto Square-Off Background Task
+def auto_square_off_loop():
+    while True:
+        now = datetime.datetime.now()
+        if now.hour == 15 and now.minute == 25:
+            square_trade = {
+                "symbol": "ALL",
+                "signal": "SQUARE-OFF",
+                "price": 0,
+                "time": str(now),
+                "mode": "auto"
+            }
+            try:
+                with open("trade_history.json", "r") as f:
+                    history = json.load(f)
+            except:
+                history = []
+            history.append(square_trade)
+            with open("trade_history.json", "w") as f:
+                json.dump(history, f, indent=2)
+        time.sleep(60)
+
+threading.Thread(target=auto_square_off_loop, daemon=True).start()
