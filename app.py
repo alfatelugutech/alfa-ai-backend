@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import requests
 import time
+import random
 
 app = Flask(__name__)
 CORS(app)
@@ -73,19 +74,61 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Mock market data - Replace with real API integration
+def get_mock_price(symbol, base_price=None):
+    base_prices = {
+        'RELIANCE': 2478.30,
+        'TCS': 3812.45,
+        'HDFCBANK': 1698.75,
+        'INFY': 1789.90,
+        'ICICIBANK': 1167.25,
+        'SBIN': 820.50,
+        'WIPRO': 445.80,
+        'BHARTIARTL': 1089.25,
+        'LT': 3567.90,
+        'MARUTI': 10890.45,
+        'NIFTY': 19567.80,
+        'BANKNIFTY': 45234.50,
+        'SENSEX': 65432.10
+    }
+    
+    if base_price:
+        base = base_price
+    else:
+        base = base_prices.get(symbol.upper(), 1000.0)
+    
+    # Add random variation (-2% to +2%)
+    variation = random.uniform(-0.02, 0.02)
+    current_price = base * (1 + variation)
+    change = current_price - base
+    change_percent = (change / base) * 100
+    
+    return {
+        'symbol': symbol.upper(),
+        'current_price': round(current_price, 2),
+        'previous_close': base,
+        'change': round(change, 2),
+        'change_percent': round(change_percent, 2),
+        'timestamp': datetime.now().isoformat(),
+        'source': 'Mock Data'
+    }
+
 # Routes
 @app.route('/')
 def home():
     return jsonify({
         "message": "🚀 AI Trading Platform API",
-        "version": "2.1",
+        "version": "3.0",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
         "features": [
             "Live positions tracking",
             "Real-time trade management",
             "Market data integration",
-            "Professional API endpoints"
+            "Professional API endpoints",
+            "Stock search",
+            "Market overview",
+            "Top gainers"
         ]
     })
 
@@ -95,7 +138,7 @@ def health():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "database": "connected",
-        "version": "2.1"
+        "version": "3.0"
     })
 
 @app.route('/api/positions')
@@ -136,32 +179,116 @@ def get_trades():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/market-overview')
+def get_market_overview():
+    try:
+        market_data = {
+            'NIFTY': get_mock_price('NIFTY', 19567.80),
+            'BANKNIFTY': get_mock_price('BANKNIFTY', 45234.50),
+            'SENSEX': get_mock_price('SENSEX', 65432.10)
+        }
+        
+        # Determine market status based on time
+        current_hour = datetime.now().hour
+        market_status = "Open" if 9 <= current_hour <= 15 else "Closed"
+        
+        return jsonify({
+            "market_data": market_data,
+            "market_status": market_status,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/real-market-data/<symbol>')
+def get_real_market_data(symbol):
+    try:
+        data = get_mock_price(symbol)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/market-data/<symbol>')
 def get_market_data(symbol):
     try:
-        # Simulate market data (replace with real API later)
-        base_prices = {
-            'RELIANCE': 2478.30,
-            'TCS': 3812.45,
-            'HDFCBANK': 1698.75,
-            'INFY': 1789.90,
-            'ICICIBANK': 1167.25
-        }
+        data = get_mock_price(symbol)
+        return jsonify({
+            "symbol": data['symbol'],
+            "price": data['current_price'],
+            "change": data['change'],
+            "change_percent": data['change_percent'],
+            "timestamp": data['timestamp']
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/stock-search/<query>')
+def search_stocks(query):
+    try:
+        # Mock stock search results
+        all_stocks = [
+            {'symbol': 'RELIANCE', 'name': 'Reliance Industries Ltd'},
+            {'symbol': 'TCS', 'name': 'Tata Consultancy Services'},
+            {'symbol': 'HDFCBANK', 'name': 'HDFC Bank Ltd'},
+            {'symbol': 'INFY', 'name': 'Infosys Ltd'},
+            {'symbol': 'ICICIBANK', 'name': 'ICICI Bank Ltd'},
+            {'symbol': 'SBIN', 'name': 'State Bank of India'},
+            {'symbol': 'WIPRO', 'name': 'Wipro Ltd'},
+            {'symbol': 'BHARTIARTL', 'name': 'Bharti Airtel Ltd'},
+            {'symbol': 'LT', 'name': 'Larsen & Toubro Ltd'},
+            {'symbol': 'MARUTI', 'name': 'Maruti Suzuki India Ltd'}
+        ]
         
-        base_price = base_prices.get(symbol.upper(), 1000.0)
-        # Add small random variation
-        import random
-        current_price = base_price + random.uniform(-50, 50)
-        change = current_price - base_price
+        # Filter stocks based on query
+        filtered_stocks = [
+            stock for stock in all_stocks 
+            if query.upper() in stock['symbol'] or query.upper() in stock['name'].upper()
+        ]
+        
+        # Add price data to results
+        results = []
+        for stock in filtered_stocks[:5]:  # Limit to 5 results
+            price_data = get_mock_price(stock['symbol'])
+            results.append({
+                'symbol': stock['symbol'],
+                'name': stock['name'],
+                'price': price_data['current_price'],
+                'change': price_data['change'],
+                'change_percent': price_data['change_percent']
+            })
         
         return jsonify({
-            "symbol": symbol.upper(),
-            "price": round(current_price, 2),
-            "change": round(change, 2),
-            "change_percent": round((change / base_price) * 100, 2),
+            "results": results,
+            "count": len(results),
             "timestamp": datetime.now().isoformat()
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/top-gainers')
+def get_top_gainers():
+    try:
+        symbols = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'WIPRO', 'BHARTIARTL']
         
+        gainers = []
+        for symbol in symbols:
+            data = get_mock_price(symbol)
+            if data['change_percent'] > 0:
+                gainers.append({
+                    'symbol': symbol,
+                    'price': data['current_price'],
+                    'change': data['change'],
+                    'change_percent': data['change_percent']
+                })
+        
+        # Sort by change percentage
+        gainers.sort(key=lambda x: x['change_percent'], reverse=True)
+        
+        return jsonify({
+            "top_gainers": gainers[:6],
+            "count": len(gainers[:6]),
+            "timestamp": datetime.now().isoformat()
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
