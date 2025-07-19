@@ -3,3 +3,7 @@ Flask-CORS==4.0.0
 requests==2.31.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
+yfinance==0.2.18
+sqlite3
+pandas==2.0.3
+numpy==1.24.3
