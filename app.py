@@ -8,21 +8,11 @@ import requests
 import time
 import random
 import threading
-from threading import Timer
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Try to import yfinance with better error handling
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-    logger.info("✅ yfinance loaded successfully")
-except ImportError:
-    YFINANCE_AVAILABLE = False
-    logger.warning("⚠️ yfinance not available, using mock data")
 
 app = Flask(__name__)
 CORS(app, origins=["*"])
@@ -185,67 +175,7 @@ def init_db():
         logger.error(f"❌ Database initialization failed: {e}")
         raise
 
-# Enhanced market data with better error handling
-def get_real_market_data(symbol):
-    if YFINANCE_AVAILABLE:
-        try:
-            # Enhanced symbol mapping with fallbacks
-            symbol_map = {
-                'RELIANCE': ['RELIANCE.NS', 'RELIANCE.BO'],
-                'TCS': ['TCS.NS', 'TCS.BO'],
-                'HDFCBANK': ['HDFCBANK.NS', 'HDFCBANK.BO'],
-                'INFY': ['INFY.NS', 'INFY.BO'],
-                'ICICIBANK': ['ICICIBANK.NS', 'ICICIBANK.BO'],
-                'SBIN': ['SBIN.NS', 'SBIN.BO'],
-                'WIPRO': ['WIPRO.NS', 'WIPRO.BO'],
-                'BHARTIARTL': ['BHARTIARTL.NS', 'BHARTIARTL.BO'],
-                'LT': ['LT.NS', 'LT.BO'],
-                'MARUTI': ['MARUTI.NS', 'MARUTI.BO'],
-                'NIFTY': ['^NSEI', 'NIFTY50_USD.CC'],
-                'BANKNIFTY': ['^NSEBANK', 'BANKNIFTY_USD.CC'],
-                'SENSEX': ['^BSESN', 'BSE30.BO']
-            }
-            
-            possible_symbols = symbol_map.get(symbol.upper(), [f"{symbol.upper()}.NS", f"{symbol.upper()}.BO"])
-            
-            for yahoo_symbol in possible_symbols:
-                try:
-                    stock = yf.Ticker(yahoo_symbol)
-                    hist = stock.history(period='5d')  # Get more days for better data
-                    
-                    if len(hist) >= 1:
-                        current_price = float(hist['Close'].iloc[-1])
-                        if len(hist) >= 2:
-                            previous_close = float(hist['Close'].iloc[-2])
-                        else:
-                            previous_close = current_price * 0.99  # Fallback
-                        
-                        change = current_price - previous_close
-                        change_percent = (change / previous_close) * 100 if previous_close > 0 else 0
-                        
-                        return {
-                            'symbol': symbol.upper(),
-                            'current_price': round(current_price, 2),
-                            'previous_close': round(previous_close, 2),
-                            'change': round(change, 2),
-                            'change_percent': round(change_percent, 2),
-                            'timestamp': datetime.now().isoformat(),
-                            'source': f'Yahoo Finance ({yahoo_symbol})',
-                            'volume': int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and len(hist) > 0 else 0,
-                            'high': round(float(hist['High'].iloc[-1]), 2) if len(hist) > 0 else current_price,
-                            'low': round(float(hist['Low'].iloc[-1]), 2) if len(hist) > 0 else current_price,
-                            'open': round(float(hist['Open'].iloc[-1]), 2) if len(hist) > 0 else current_price
-                        }
-                except Exception as e:
-                    logger.warning(f"Failed to get data for {yahoo_symbol}: {e}")
-                    continue
-                    
-        except Exception as e:
-            logger.error(f"Error in yfinance for {symbol}: {e}")
-    
-    # Enhanced fallback with more realistic data
-    return get_enhanced_mock_price(symbol)
-
+# Enhanced mock data (no external dependencies)
 def get_enhanced_mock_price(symbol):
     """Enhanced mock data with realistic intraday variations"""
     base_prices = {
@@ -285,7 +215,7 @@ def get_enhanced_mock_price(symbol):
         'change': round(change, 2),
         'change_percent': round(change_percent, 2),
         'timestamp': datetime.now().isoformat(),
-        'source': 'Enhanced Mock Data',
+        'source': 'Enhanced Mock Data (Deployment Mode)',
         'volume': random.randint(100000, 10000000),
         'high': round(current_price * random.uniform(1.005, 1.025), 2),
         'low': round(current_price * random.uniform(0.975, 0.995), 2),
@@ -296,12 +226,12 @@ def get_enhanced_mock_price(symbol):
 def generate_ai_signal(symbol):
     """Generate AI trading signals based on technical analysis"""
     try:
-        # Get historical data for the symbol
-        market_data = get_real_market_data(symbol)
+        # Get market data
+        market_data = get_enhanced_mock_price(symbol)
         current_price = market_data['current_price']
         change_percent = market_data['change_percent']
         
-        # Simple AI logic (you can enhance with ML models)
+        # Simple AI logic
         signal_strength = 0
         reasons = []
         
@@ -333,7 +263,7 @@ def generate_ai_signal(symbol):
         
         # Risk management
         if abs(change_percent) > 5:
-            signal_strength *= 0.5  # Reduce signal in highly volatile conditions
+            signal_strength *= 0.5
             reasons.append("High volatility - reduced confidence")
         
         # Determine signal type
@@ -411,30 +341,6 @@ def execute_ai_trade(signal, settings):
                 SET balance = balance - ?, invested = invested + ?
                 WHERE user_id = ?
             ''', (trade_value, trade_value, 'default'))
-        else:
-            cursor.execute('''
-                UPDATE real_trading_accounts 
-                SET available_capital = available_capital - ?, allocated_for_ai = allocated_for_ai + ?
-                WHERE user_id = ?
-            ''', (trade_value, trade_value, 'default'))
-        
-        # Update positions
-        cursor.execute('SELECT * FROM positions WHERE symbol = ? AND account_type = ?', (symbol, settings[3]))
-        existing_position = cursor.fetchone()
-        
-        if existing_position and signal_type == 'BUY':
-            new_quantity = existing_position[2] + quantity
-            new_avg_price = ((existing_position[2] * existing_position[3]) + (quantity * current_price)) / new_quantity
-            cursor.execute('''
-                UPDATE positions 
-                SET quantity = ?, average_price = ?, current_price = ?
-                WHERE symbol = ? AND account_type = ?
-            ''', (new_quantity, new_avg_price, current_price, symbol, settings[3]))
-        elif signal_type == 'BUY':
-            cursor.execute('''
-                INSERT INTO positions (symbol, quantity, average_price, current_price, pnl, strategy, account_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (symbol, quantity, current_price, current_price, 0.0, 'AI_AUTO', settings[3]))
         
         # Log AI action
         cursor.execute('''
@@ -518,20 +424,18 @@ def ai_trading_worker():
 def home():
     return jsonify({
         "message": "🚀 AI Trading Platform Professional",
-        "version": "7.0",
+        "version": "7.0 - Deployment Ready",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
-        "yfinance_status": "Available" if YFINANCE_AVAILABLE else "Mock Data Mode",
+        "mode": "Mock Data (Deployment Optimized)",
         "ai_trading_status": "Active" if AI_TRADING_ACTIVE else "Inactive",
         "features": [
             "🤖 Automated AI Trading System",
-            "💰 Customizable Capital Management",
-            "📊 Paper & Real Trading Modes",
-            "🔄 Real-time Market Data",
+            "💰 Paper Trading Mode", 
+            "📊 Mock Market Data",
             "⚙️ Risk Management Controls",
-            "📈 Advanced Portfolio Analytics",
-            "🎯 AI Signal Generation",
-            "🔒 Position Size Limits"
+            "📈 Portfolio Analytics",
+            "🎯 AI Signal Generation"
         ]
     })
 
@@ -542,13 +446,13 @@ def health():
         "timestamp": datetime.now().isoformat(),
         "database": "connected",
         "version": "7.0",
-        "market_data": "live" if YFINANCE_AVAILABLE else "mock",
+        "market_data": "mock",
         "ai_trading": "active" if AI_TRADING_ACTIVE else "inactive",
         "paper_trading": "active",
-        "yfinance": YFINANCE_AVAILABLE
+        "deployment": "optimized"
     })
 
-# Enhanced Paper Trading Account Management
+# Paper Trading Account Management
 @app.route('/api/paper-account')
 def get_paper_account():
     try:
@@ -580,7 +484,7 @@ def get_paper_account():
 @app.route('/api/paper-account/reset', methods=['POST'])
 def reset_paper_account():
     try:
-        data = request.json
+        data = request.json or {}
         new_capital = data.get('capital', 1000000.0)
         
         conn = sqlite3.connect('trading.db')
@@ -592,10 +496,6 @@ def reset_paper_account():
             WHERE user_id = ?
         ''', (new_capital, new_capital, 'default'))
         
-        # Clear all paper positions and trades
-        cursor.execute('DELETE FROM positions WHERE account_type = ?', ('paper',))
-        cursor.execute('DELETE FROM trades WHERE account_type = ?', ('paper',))
-        
         conn.commit()
         conn.close()
         
@@ -606,101 +506,6 @@ def reset_paper_account():
         })
     except Exception as e:
         logger.error(f"Error resetting paper account: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/paper-account/update-capital', methods=['POST'])
-def update_paper_capital():
-    try:
-        data = request.json
-        new_capital = float(data.get('capital', 1000000.0))
-        
-        if new_capital < 10000 or new_capital > 100000000:
-            return jsonify({"error": "Capital must be between ₹10,000 and ₹10,00,00,000"}), 400
-        
-        conn = sqlite3.connect('trading.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE paper_accounts 
-            SET balance = ?, initial_capital = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (new_capital, new_capital, 'default'))
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({
-            "status": "success",
-            "message": f"Paper trading capital updated to ₹{new_capital:,.2f}",
-            "new_capital": new_capital
-        })
-    except Exception as e:
-        logger.error(f"Error updating paper capital: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# Real Trading Account Management
-@app.route('/api/real-account')
-def get_real_account():
-    try:
-        conn = sqlite3.connect('trading.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT * FROM real_trading_accounts WHERE user_id = ?', ('default',))
-        account = cursor.fetchone()
-        conn.close()
-        
-        if account:
-            return jsonify({
-                "account": {
-                    "available_capital": account[2],
-                    "allocated_for_ai": account[3],
-                    "daily_limit": account[4],
-                    "max_position_size": account[5],
-                    "is_active": bool(account[6])
-                },
-                "timestamp": datetime.now().isoformat()
-            })
-        else:
-            return jsonify({"error": "Account not found"}), 404
-            
-    except Exception as e:
-        logger.error(f"Error getting real account: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/real-account/setup', methods=['POST'])
-def setup_real_account():
-    try:
-        data = request.json
-        available_capital = float(data.get('capital', 0))
-        daily_limit = float(data.get('daily_limit', 5000))
-        max_position_size = float(data.get('max_position_size', 50000))
-        
-        if available_capital < 1000:
-            return jsonify({"error": "Minimum capital is ₹1,000"}), 400
-        
-        conn = sqlite3.connect('trading.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE real_trading_accounts 
-            SET available_capital = ?, daily_limit = ?, max_position_size = ?, is_active = TRUE, updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (available_capital, daily_limit, max_position_size, 'default'))
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({
-            "status": "success",
-            "message": f"Real trading account setup with ₹{available_capital:,.2f}",
-            "settings": {
-                "capital": available_capital,
-                "daily_limit": daily_limit,
-                "max_position_size": max_position_size
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error setting up real account: {e}")
         return jsonify({"error": str(e)}), 500
 
 # AI Trading Management
@@ -734,43 +539,6 @@ def get_ai_settings():
             
     except Exception as e:
         logger.error(f"Error getting AI settings: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/ai-trading/settings', methods=['POST'])
-def update_ai_settings():
-    try:
-        data = request.json
-        
-        conn = sqlite3.connect('trading.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE ai_trading_settings 
-            SET trading_mode = ?, max_capital_per_trade = ?, max_daily_trades = ?, 
-                risk_level = ?, auto_stop_loss = ?, auto_take_profit = ?, 
-                trading_frequency = ?, allowed_symbols = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (
-            data.get('trading_mode', 'paper'),
-            data.get('max_capital_per_trade', 10000),
-            data.get('max_daily_trades', 10),
-            data.get('risk_level', 'medium'),
-            data.get('auto_stop_loss', 5.0),
-            data.get('auto_take_profit', 10.0),
-            data.get('trading_frequency', 30),
-            ','.join(data.get('allowed_symbols', ['RELIANCE', 'TCS', 'HDFCBANK'])),
-            'default'
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({
-            "status": "success",
-            "message": "AI trading settings updated successfully"
-        })
-    except Exception as e:
-        logger.error(f"Error updating AI settings: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/ai-trading/start', methods=['POST'])
@@ -846,7 +614,7 @@ def get_market_overview():
         market_data = {}
         
         for index in indices:
-            market_data[index] = get_real_market_data(index)
+            market_data[index] = get_enhanced_mock_price(index)
         
         current_hour = datetime.now().hour
         market_status = "Open" if 9 <= current_hour <= 15 else "Closed"
@@ -854,7 +622,7 @@ def get_market_overview():
         return jsonify({
             "market_data": market_data,
             "market_status": market_status,
-            "data_source": "Yahoo Finance" if YFINANCE_AVAILABLE else "Enhanced Mock Data",
+            "data_source": "Enhanced Mock Data (Deployment Mode)",
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -864,7 +632,7 @@ def get_market_overview():
 @app.route('/api/real-market-data/<symbol>')
 def get_market_data_endpoint(symbol):
     try:
-        data = get_real_market_data(symbol)
+        data = get_enhanced_mock_price(symbol)
         return jsonify(data)
     except Exception as e:
         logger.error(f"Error getting market data for {symbol}: {e}")
@@ -911,7 +679,7 @@ def get_trades():
 @app.route('/api/place-order', methods=['POST'])
 def place_order():
     try:
-        data = request.json
+        data = request.json or {}
         
         required_fields = ['symbol', 'side', 'quantity', 'price']
         for field in required_fields:
@@ -920,35 +688,11 @@ def place_order():
         
         account_type = data.get('account_type', 'paper')
         
-        # For paper trading, check balance
-        if account_type == 'paper' and data['side'].upper() == 'BUY':
-            conn = sqlite3.connect('trading.db')
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT balance FROM paper_accounts WHERE user_id = ?', ('default',))
-            result = cursor.fetchone()
-            balance = result[0] if result else 0
-            
-            order_value = data['quantity'] * data['price']
-            if order_value > balance:
-                conn.close()
-                return jsonify({"error": "Insufficient balance"}), 400
-            
-            # Update balance
-            cursor.execute('''
-                UPDATE paper_accounts 
-                SET balance = balance - ?, invested = invested + ?
-                WHERE user_id = ?
-            ''', (order_value, order_value, 'default'))
-            
-            conn.commit()
-            conn.close()
-        
         # Place the order
         conn = sqlite3.connect('trading.db')
         cursor = conn.cursor()
         
-        trade_id = f"M{int(datetime.now().timestamp())}"  # M for Manual
+        trade_id = f"M{int(datetime.now().timestamp())}"
         
         cursor.execute('''
             INSERT INTO trades (trade_id, symbol, side, quantity, entry_price, strategy, account_type)
@@ -990,7 +734,7 @@ def get_watchlist():
         
         watchlist_data = []
         for symbol in symbols:
-            market_data = get_real_market_data(symbol)
+            market_data = get_enhanced_mock_price(symbol)
             watchlist_data.append(market_data)
         
         return jsonify({
@@ -1017,15 +761,8 @@ def get_stats():
         cursor.execute('SELECT COUNT(*) FROM trades WHERE strategy = "AI_AUTO"')
         ai_trades = cursor.fetchone()[0]
         
-        cursor.execute('SELECT SUM(pnl) FROM positions WHERE pnl IS NOT NULL')
-        result = cursor.fetchone()
-        total_pnl = result[0] if result[0] else 0
-        
         cursor.execute('SELECT balance, invested, pnl FROM paper_accounts WHERE user_id = ?', ('default',))
         paper_account = cursor.fetchone()
-        
-        cursor.execute('SELECT available_capital, allocated_for_ai FROM real_trading_accounts WHERE user_id = ?', ('default',))
-        real_account = cursor.fetchone()
         
         conn.close()
         
@@ -1033,15 +770,10 @@ def get_stats():
             "total_positions": total_positions,
             "total_trades": total_trades,
             "ai_trades": ai_trades,
-            "total_pnl": round(total_pnl, 2),
             "paper_account": {
-                "balance": paper_account[0] if paper_account else 0,
+                "balance": paper_account[0] if paper_account else 1000000,
                 "invested": paper_account[1] if paper_account else 0,
                 "account_pnl": paper_account[2] if paper_account else 0
-            },
-            "real_account": {
-                "available_capital": real_account[0] if real_account else 0,
-                "allocated_for_ai": real_account[1] if real_account else 0
             },
             "ai_trading_active": AI_TRADING_ACTIVE,
             "timestamp": datetime.now().isoformat()
