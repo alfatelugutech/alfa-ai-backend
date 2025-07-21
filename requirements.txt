@@ -1,24 +1,8 @@
-# Core Flask Dependencies
 Flask==2.3.3
 Flask-CORS==4.0.0
 requests==2.31.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
-
-# Market Data and Trading APIs
-yfinance==0.2.18
-kiteconnect==4.2.0
-
-# Scientific Computing and Analysis (compatible versions)
-numpy==1.24.3
-pandas==2.0.3
-
-# Date and Time Utilities
-pytz==2023.3
-
-# Additional Core Dependencies
-setuptools==68.0.0
+yfinance
+setuptools>=65.0.0
 wheel
-
-# HTTP client improvements
-httpx==0.24.1
