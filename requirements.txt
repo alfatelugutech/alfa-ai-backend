@@ -17,7 +17,7 @@ pandas==2.0.3
 pytz==2023.3
 
 # Additional Core Dependencies
-setuptools>=65.0.0
+setuptools==68.0.0
 wheel
 
 # HTTP client improvements
