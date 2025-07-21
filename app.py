@@ -653,7 +653,7 @@ def get_market_overview():
         })
     except Exception as e:
         logger.error(f"Error getting market overview: {e}")
-        return jsonify({"error": str(e)}), 500)
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         logger.error(f"Error getting market overview: {e}")
         return jsonify({"error": str(e)}), 500
