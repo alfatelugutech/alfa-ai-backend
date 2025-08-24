@@ -9,6 +9,7 @@ import time
 import random
 import threading
 import logging
+from kiteconnect import KiteConnect, KiteTicker
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -821,3 +822,207 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Failed to start application: {e}")
         raise
+
+
+# ===== Zerodha Live Integration (added) =====
+kite = None
+kite_ws = None
+ZERODHA_CONNECTED = False
+INSTRUMENTS_BUILT = False
+token_by_symbol = {}
+symbol_by_token = {}
+live_quotes = {}
+
+def build_instruments_map():
+    global token_by_symbol, symbol_by_token, INSTRUMENTS_BUILT, kite
+    try:
+        if kite is None:
+            return False
+        instruments = kite.instruments("NSE")
+        token_by_symbol = {}
+        symbol_by_token = {}
+        for row in instruments:
+            tradingsymbol = row.get("tradingsymbol")
+            token = row.get("instrument_token")
+            if tradingsymbol and token:
+                token_by_symbol[tradingsymbol.upper()] = token
+                symbol_by_token[token] = tradingsymbol.upper()
+        INSTRUMENTS_BUILT = True
+        logger.info(f"✅ Built instruments map: {len(token_by_symbol)} symbols")
+        return True
+    except Exception as e:
+        logger.error(f"❌ build_instruments_map failed: {e}")
+        return False
+
+def start_kite_ticker():
+    global kite_ws, kite, ZERODHA_CONNECTED
+    try:
+        if kite is None or not ZERODHA_CONNECTED:
+            logger.warning("Kite not connected; ticker not started.")
+            return
+        api_key = os.environ.get("Z_API_KEY")
+        access_token = os.environ.get("Z_ACCESS_TOKEN")
+        kite_ws = KiteTicker(api_key, access_token)
+
+        def on_ticks(ws, ticks):
+            for t in ticks:
+                token = t.get("instrument_token")
+                if token:
+                    live_quotes[token] = t
+
+        def on_connect(ws, response):
+            logger.info("🟢 KiteTicker connected.")
+            try:
+                if token_by_symbol:
+                    ws.subscribe(list(token_by_symbol.values()))
+                    ws.set_mode(ws.MODE_QUOTE, list(token_by_symbol.values()))
+            except Exception as e:
+                logger.error(f"KiteTicker subscribe on_connect failed: {e}")
+        def on_close(ws, code, reason):
+            logger.warning(f"🟡 KiteTicker closed: {code} {reason}")
+        def on_error(ws, code, reason):
+            logger.error(f"🔴 KiteTicker error: {code} {reason}")
+
+        kite_ws.on_ticks = on_ticks
+        kite_ws.on_connect = on_connect
+        kite_ws.on_close = on_close
+        kite_ws.on_error = on_error
+
+        kite_ws.connect(threaded=True)
+        logger.info("▶️ KiteTicker connecting...")
+    except Exception as e:
+        logger.error(f"❌ start_kite_ticker failed: {e}")
+
+def _ensure_kite_connected():
+    global kite, ZERODHA_CONNECTED
+    if ZERODHA_CONNECTED and kite is not None:
+        return True
+    api_key = os.environ.get("Z_API_KEY")
+    access_token = os.environ.get("Z_ACCESS_TOKEN")
+    if api_key and access_token:
+        try:
+            kite = KiteConnect(api_key=api_key)
+            kite.set_access_token(access_token)
+            ZERODHA_CONNECTED = True
+            if not INSTRUMENTS_BUILT:
+                build_instruments_map()
+            if kite_ws is None:
+                start_kite_ticker()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to rehydrate Kite session: {e}")
+    return False
+
+@app.route('/api/zerodha/status')
+def zerodha_status():
+    return jsonify({
+        "connected": bool(ZERODHA_CONNECTED),
+        "has_access_token": bool(os.environ.get("Z_ACCESS_TOKEN")),
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/api/zerodha/login-url')
+def zerodha_login_url():
+    try:
+        api_key = os.environ.get("Z_API_KEY")
+        api_secret = os.environ.get("Z_API_SECRET")
+        if not api_key or not api_secret:
+            return jsonify({"error": "Missing Z_API_KEY/Z_API_SECRET"}), 400
+        zk = KiteConnect(api_key=api_key)
+        return jsonify({"login_url": zk.login_url()})
+    except Exception as e:
+        logger.error(f"/api/zerodha/login-url error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/zerodha/callback')
+def zerodha_callback():
+    global kite, ZERODHA_CONNECTED
+    try:
+        request_token = request.args.get("request_token")
+        api_key = os.environ.get("Z_API_KEY")
+        api_secret = os.environ.get("Z_API_SECRET")
+        if not request_token:
+            return jsonify({"error": "Missing request_token"}), 400
+        if not api_key or not api_secret:
+            return jsonify({"error": "Missing Z_API_KEY/Z_API_SECRET"}), 400
+        zk = KiteConnect(api_key=api_key)
+        data = zk.generate_session(request_token, api_secret=api_secret)
+        access_token = data["access_token"]
+        os.environ["Z_ACCESS_TOKEN"] = access_token
+        kite = KiteConnect(api_key=api_key)
+        kite.set_access_token(access_token)
+        ZERODHA_CONNECTED = True
+        build_instruments_map()
+        start_kite_ticker()
+        return jsonify({"status":"success","access_token_set":True})
+    except Exception as e:
+        logger.error(f"/api/zerodha/callback error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/zerodha/quote/<symbol>')
+def zerodha_quote(symbol):
+    try:
+        if not _ensure_kite_connected():
+            return jsonify({"error":"Zerodha not connected"}), 503
+        scrip = f"NSE:{symbol.upper()}"
+        q = kite.quote([scrip])
+        return jsonify({"symbol":symbol.upper(),"data":q.get(scrip,{}),"source":"Zerodha/quote","timestamp":datetime.now().isoformat()})
+    except Exception as e:
+        logger.error(f"/api/zerodha/quote error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/zerodha/subscribe', methods=['POST'])
+def zerodha_subscribe():
+    global kite_ws
+    try:
+        if not _ensure_kite_connected():
+            return jsonify({"error": "Zerodha not connected"}), 503
+        payload = request.get_json(force=True) or {}
+        symbols = [s.upper() for s in payload.get("symbols", []) if s]
+        if not symbols:
+            return jsonify({"error": "No symbols provided"}), 400
+        if not INSTRUMENTS_BUILT:
+            build_instruments_map()
+        tokens = [token_by_symbol.get(s) for s in symbols if token_by_symbol.get(s)]
+        if not tokens:
+            return jsonify({"error": "No tokens resolved for symbols"}), 400
+        if kite_ws:
+            kite_ws.subscribe(tokens)
+            kite_ws.set_mode(kite_ws.MODE_QUOTE, tokens)
+        return jsonify({"status": "subscribed", "symbols": symbols, "tokens": tokens})
+    except Exception as e:
+        logger.error(f"/api/zerodha/subscribe error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/zerodha/live/<symbol>')
+def zerodha_live(symbol):
+    try:
+        if not _ensure_kite_connected():
+            return jsonify({"error": "Zerodha not connected"}), 503
+        if not INSTRUMENTS_BUILT:
+            build_instruments_map()
+        tok = token_by_symbol.get(symbol.upper())
+        if tok and tok in live_quotes:
+            t = live_quotes[tok]
+            return jsonify({
+                "symbol": symbol.upper(),
+                "last_price": t.get("last_price"),
+                "ohlc": t.get("ohlc"),
+                "depth": t.get("depth"),
+                "volume": t.get("volume_traded", t.get("volume")),
+                "timestamp": datetime.now().isoformat(),
+                "source": "Zerodha/WebSocket"
+            })
+        scrip = f"NSE:{symbol.upper()}"
+        q = kite.quote([scrip]).get(scrip, {})
+        return jsonify({
+            "symbol": symbol.upper(),
+            "last_price": q.get("last_price"),
+            "data": q,
+            "timestamp": datetime.now().isoformat(),
+            "source": "Zerodha/quote(fallback)"
+        })
+    except Exception as e:
+        logger.error(f"/api/zerodha/live error: {e}")
+        return jsonify({"error": str(e)}), 500
+
